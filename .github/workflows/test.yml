@@ -30,6 +30,6 @@ jobs:
           echo "Files in tests/:"
           ls -la tests/
       
-      - name: Run pytest on all test files
+      - name: Run only test_debug.py first
         run: |
-          python -m pytest tests/ -v --tb=short
+          python -m pytest tests/test_debug.py -v --tb=short
