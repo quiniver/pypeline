@@ -12,7 +12,7 @@ jobs:
     
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11']
+        python-version: ['3.10', '3.11']
     
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +33,11 @@ jobs:
         run: |
           echo "Files in src/:"
           ls -la src/
+      
+      - name: List files in tests directory for debugging
+        run: |
+          echo "Files in tests/:"
+          ls -la tests/
       
       - name: Run pytest with verbose output
         run: |
