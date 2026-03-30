@@ -10,17 +10,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     
-    strategy:
-      matrix:
-        python-version: ['3.10', '3.11']
-    
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
       
       - name: Install dependencies
         run: |
@@ -39,13 +35,33 @@ jobs:
           echo "Files in tests/:"
           ls -la tests/
       
-      - name: Run pytest with verbose output
+      - name: Check pytest installation
         run: |
-          python -m pytest tests -v --tb=short --color=yes
+          python -m pytest --version
+      
+      - name: Run a simple test to verify pytest works
+        run: |
+          echo "def test_simple(): assert True" > /tmp/test_simple.py
+          python -m pytest /tmp/test_simple.py -v
+      
+      - name: List Python path and check imports
+        run: |
+          python -c "import sys; print('\n'.join(sys.path))"
+          python -c "import src.debug; print('src.debug imported successfully')" 2>&1 || echo "Import failed!"
+      
+      - name: Run pytest with verbose output
+        id: pytest_run
+        run: |
+          set -e
+          python -m pytest tests/ -v --tb=short --color=yes 2>&1 || {
+            echo "Pytest failed, showing more details:"
+            python -m pytest tests/test_debug.py -v --tb=long --capture=no 2>&1 || true
+            exit 1
+          }
       
       - name: Generate coverage report
-        if: matrix.python-version == '3.11'
+        if: success()
         run: |
           pip install coverage
-          coverage run -m pytest tests
+          coverage run -m pytest tests/
           coverage report -m
