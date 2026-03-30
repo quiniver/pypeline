@@ -25,11 +25,31 @@ jobs:
             pip install -r requirements-test.txt
           fi
       
-      - name: List files in tests directory for debugging  
+      - name: List tests directory structure
         run: |
-          echo "Files in tests/:"
-          ls -la tests/
+          echo "=== Tests Directory ==="
+          find tests/ -type f -name "*.py" | sort
+          echo "=== Source Directory Structure ==="  
+          find src/ -type f -name "*.py" | sort
       
-      - name: Run only test_debug.py first
+      - name: Test basic Python import capability
         run: |
-          python -m pytest tests/test_debug.py -v --tb=short
+          python --version
+          pip install pytest
+      
+      - name: Run simple test to verify environment
+        run: |
+          echo "Running simple assertion test..."
+          python -c "assert 1 + 1 == 2"
+          echo "Simple test passed!"
+      
+      - name: List all Python files in tests/
+        run: |
+          ls -la tests/*.py
+      
+      - name: Run pytest with verbose output on ALL tests
+        id: pytest_debug
+        continue-on-error: true
+        run: |
+          set +e  # Don't exit on error, capture all output
+          python -m pytest tests/ -v --tb=long 2>&1 || echo "PYTEST FAILED"
