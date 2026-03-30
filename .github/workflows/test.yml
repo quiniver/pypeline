@@ -25,24 +25,11 @@ jobs:
             pip install -r requirements-test.txt
           fi
       
-      - name: List files in src directory for debugging
-        run: |
-          echo "Files in src/:"
-          ls -la src/
-      
       - name: List files in tests directory for debugging  
         run: |
           echo "Files in tests/:"
           ls -la tests/
       
-      - name: Check pytest installation
+      - name: Run pytest on all test files
         run: |
-          python -m pytest --version
-      
-      - name: Run only simple test first
-        run: |
-          python -m pytest tests/test_simple.py -v --tb=short
-      
-      - name: List Python path and check imports
-        run: |
-          python -c "import sys; print('\n'.join(sys.path))"
+          python -m pytest tests/ -v --tb=short
