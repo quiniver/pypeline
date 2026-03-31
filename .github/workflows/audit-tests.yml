@@ -1,0 +1,68 @@
+name: Test Audit
+
+on:
+  push:
+    branches: [tests]
+  pull_request:
+    branches: [main, tests]
+
+jobs:
+  test-audit:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-test.txt ]; then
+            pip install -r requirements-test.txt
+          fi
+      
+      - name: Install source package for testing
+        run: |
+          cd src
+          # Add src to PYTHONPATH for imports
+          export PYTHONPATH=$(pwd):$PYTHONPATH
+      
+      - name: Run pytest with full coverage and verbose output
+        id: test_results
+        continue-on-error: true
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ env.PYTHONPATH }}
+        run: |
+          export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+          python -m pytest tests/ \
+            -v \
+            --tb=short \
+            --color=yes \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --junitxml=test-results.xml || true
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: |
+            test-results.xml
+            coverage/
+          
+      - name: Analyze test output
+        run: |
+          echo "=== Test Audit Summary ===" 
+          grep -E "(PASSED|FAILED|ERROR)" test-results.xml || true
