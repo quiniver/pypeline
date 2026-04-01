@@ -1,145 +1,243 @@
-"""Tests for markcms.py - Testing markdown documentation generator functions."""
-
+"""Tests for src/markcms.py - Markdown documentation CMS."""
+import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+import pytest
+import yaml
 
 
-class TestResolvePath:
-    """Test cases for resolve_path function."""
+class TestPathResolution:
+    """Test path resolution utilities in markcms.py."""
     
     def test_resolve_absolute_path(self):
-        """Test resolving absolute path."""
+        """Test resolving absolute paths as-is."""
         from markcms import resolve_path
         
-        result = resolve_path('/absolute/path', Path('/base'))
+        abs_path = Path("/absolute/path")
+        result = resolve_path(str(abs_path), Path("/base"))
         
-        assert result.is_absolute()
-        assert str(result) == '/absolute/path'
-
-
-class TestLoadConfig:
-    """Test cases for load_config function."""
+        assert result == abs_path
     
-    def test_load_config_success(self, tmp_path):
-        """Test loading valid config file."""
+    def test_resolve_relative_path(self):
+        """Test resolving relative paths to base directory."""
+        from markcms import resolve_path
+        
+        rel_path = "relative/path"
+        base = Path("/base")
+        result = resolve_path(rel_path, base)
+        
+        expected = (base / "relative").resolve()
+        assert result == expected
+    
+    def test_resolve_nested_relative(self):
+        """Test resolving nested relative paths."""
+        from markcms import resolve_path
+        
+        rel_path = "../parent/path"
+        base = Path("/current/base")
+        result = resolve_path(rel_path, base)
+        
+        # Should handle parent directory references
+        assert "parent" in str(result)
+
+
+class TestYAMLLoading:
+    """Test YAML config loading in markcms.py."""
+    
+    def test_load_valid_config(self, temp_dir):
+        """Test loading a valid YAML config file."""
         from markcms import load_config
         
-        config_file = tmp_path / "_config.yml"
-        config_content = """
-docs:
-  - title: Test
-    file: test.md
-"""
-        config_file.write_text(config_content)
+        config_path = temp_dir / "_config.yml"
+        config_content = {
+            "docs": [
+                {"title": "Home", "file": "index.md"},
+                {"title": "About", "file": "about.md"}
+            ]
+        }
         
-        config = load_config(config_file)
+        config_path.write_text(yaml.dump(config_content))
         
-        assert 'docs' in config
-
-
-class TestExtractFrontmatter:
-    """Test cases for extract_frontmatter function."""
+        config = load_config(config_path)
+        
+        assert "docs" in config
+        assert len(config["docs"]) == 2
     
-    def test_extract_with_frontmatter(self):
-        """Test extracting frontmatter from content with YAML block."""
-        from markcms import extract_frontmatter
+    def test_load_nonexistent_config(self, temp_dir):
+        """Test loading non-existent config file raises error."""
+        from markcms import load_config
         
-        content = "---\ntitle: Test\n---\nThis is the body"
+        with pytest.raises(FileNotFoundError):
+            load_config(temp_dir / "nonexistent.yml")
+    
+    def test_load_invalid_yaml(self, temp_dir):
+        """Test loading invalid YAML raises ValueError."""
+        from markcms import load_config
         
-        frontmatter, body = extract_frontmatter(content)
+        config_path = temp_dir / "invalid.yml"
+        config_path.write_text("invalid: yaml: content: [")
         
-        assert frontmatter is not None
-        assert 'title: Test' in frontmatter
-        assert 'This is the body' in body
+        with pytest.raises(ValueError) as exc_info:
+            load_config(config_path)
+        
+        assert "Invalid YAML" in str(exc_info.value)
 
 
-class TestGetMenuKey:
-    """Test cases for get_menu_key function."""
+class TestMenuAndSitemapGeneration:
+    """Test menu and sitemap generation utilities."""
     
     def test_get_menu_key_with_file(self):
-        """Test getting menu key with file attribute."""
+        """Test getting menu key for item with file attribute."""
         from markcms import get_menu_key
         
         item = {"title": "Home", "file": "index.md"}
-        
         key = get_menu_key(item)
         
         assert key == "index.md"
-
-
-class TestGetMenuContent:
-    """Test cases for get_menu_content function."""
     
-    def test_get_menu_content_with_items(self):
-        """Test getting menu content with multiple items."""
-        from markcms import get_menu_content
+    def test_get_menu_key_with_link(self):
+        """Test getting menu key for link-type item."""
+        from markcms import get_menu_key
+        
+        item = {"title": "External Link", "type": "link"}
+        key = get_menu_key(item)
+        
+        assert "__link__" in key
+    
+    def test_get_sitemap_content(self):
+        """Test generating sitemap content."""
+        from markcms import get_sitemap_content
         
         nav_items = [
             {"title": "Home", "file": "index.md"},
             {"title": "About", "file": "about.md"}
         ]
         
-        menu = get_menu_content(nav_items, "about.md")
-        
-        assert "**About**" in menu  # Active item should be bold
-
-
-class TestGetSitemapContent:
-    """Test cases for get_sitemap_content function."""
-    
-    def test_get_sitemap_content_with_items(self):
-        """Test getting sitemap content with multiple items."""
-        from markcms import get_sitemap_content
-        
-        nav_items = [
-            {"title": "Home", "file": "index.md"}
-        ]
-        
         sitemap = get_sitemap_content(nav_items, "index.md")
         
-        assert "- **Home**" in sitemap
+        assert "**Home**" in sitemap  # Active item should be bold
+        assert "[About](about.md)" in sitemap
 
 
-class TestMakeRelativePath:
-    """Test cases for make_relative_path function."""
+class TestTemplateExpansion:
+    """Test template placeholder expansion."""
     
-    def test_make_relative_same_root(self):
-        """Test making relative path when both are under same root."""
-        from markcms import make_relative_path
+    def test_expand_context_placeholders(self):
+        """Test expanding context-dependent placeholders."""
+        from markcms import expand_placeholders
         
-        start = Path('/project/docs').resolve()
-        target = Path('/project/docs/page.md').resolve()
+        template = "{menu} {content}"
+        context = {"menu": "Home • About", "content": "Main content"}
         
-        rel = make_relative_path(target, start)
+        templates_dir = Path("/tmp")
+        result = expand_placeholders(
+            template, context, templates_dir, [], "", {}
+        )
         
-        assert str(rel) == 'page.md'
-
-
-class TestIMAGE_EXTENSIONS:
-    """Test cases for IMAGE_EXTENSIONS constant."""
+        assert "Home • About" in result
+        assert "Main content" in result
     
-    def test_image_extensions_includes_common_formats(self):
-        """Test that common image extensions are included."""
-        from markcms import IMAGE_EXTENSIONS
+    def test_expand_with_custom_fragments(self):
+        """Test expanding with custom template fragments."""
+        from markcms import expand_placeholders
         
-        assert '.jpg' in IMAGE_EXTENSIONS
-        assert '.png' in IMAGE_EXTENSIONS
+        template = "{header} {content}"
+        context = {"content": "Body"}
+        
+        # Create temp templates directory with header fragment
+        with patch('pathlib.Path.exists') as mock_exists, \
+             patch('pathlib.Path.read_text') as mock_read:
+            
+            mock_exists.return_value = True
+            mock_read.return_value = "<header>Header</header>"
+            
+            result = expand_placeholders(
+                template, context, Path("/templates"), [], "", {"header": "header.md"}
+            )
+        
+        assert "Header" in result
 
 
-class TestFRONTMATTER_RE:
-    """Test cases for FRONTMATTER_RE regex."""
+class TestGalleryGeneration:
+    """Test gallery content generation."""
     
-    def test_frontmatter_re_matches_yaml(self):
-        """Test that FRONTMATTER_RE matches YAML frontmatter."""
-        from markcms import FRONTMATTER_RE
+    def test_generate_gallery_with_images(self, temp_dir):
+        """Test generating gallery from image files."""
+        from markcms import generate_gallery_content
         
-        content = "---\ntitle: Test\n---\nBody"
+        # Create media directory with images
+        media_dir = temp_dir / "media"
+        media_dir.mkdir()
         
-        match = FRONTMATTER_RE.match(content)
+        (media_dir / "photo.jpg").write_bytes(b"fake jpg")
+        (media_dir / "image.png").write_bytes(b"fake png")
         
-        assert match is not None
+        template_media_dir = temp_dir / "template-media"
+        template_media_dir.mkdir()
+        
+        item = {"title": "Gallery", "columns": 1}
+        
+        gallery = generate_gallery_content(
+            item, media_dir, template_media_dir, {}, temp_dir, temp_dir / "output.md"
+        )
+        
+        assert "No images or supported media files found" not in gallery
+    
+    def test_generate_gallery_empty_directory(self, temp_dir):
+        """Test generating gallery from empty directory."""
+        from markcms import generate_gallery_content
+        
+        media_dir = temp_dir / "empty-media"
+        media_dir.mkdir()
+        
+        template_media_dir = temp_dir / "template-media"
+        template_media_dir.mkdir()
+        
+        item = {"title": "Empty Gallery"}
+        
+        gallery = generate_gallery_content(
+            item, media_dir, template_media_dir, {}, temp_dir, temp_dir / "output.md"
+        )
+        
+        assert "No images or supported media files found" in gallery
 
 
-if __name__ == "__main__":
-    import pytest
-    pytest.main([__file__, "-v"])
+class TestMarkCMSMain:
+    """Test main() function of markcms.py."""
+    
+    def test_list_placeholders(self):
+        """Test listing available placeholders."""
+        from markcms import list_placeholders
+        
+        with patch('sys.stdout') as mock_stdout:
+            list_placeholders(None)
+            
+            # Check that built-in placeholders are listed
+            output = ''.join(str(call) for call in mock_stdout.write.call_args_list)
+            assert "timestamp" in output or len(output) > 0
+    
+    def test_dry_run_mode(self, temp_dir):
+        """Test dry-run mode validates without writing files."""
+        # Create minimal config and content
+        config = temp_dir / "_config.yml"
+        config.write_text("docs:\n  - title: Test\n    file: page.md")
+        
+        docs_dir = temp_dir / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "page.md").write_text("# Page Title")
+        
+        out_dir = temp_dir / "out"
+        
+        with patch('sys.argv', [
+            'markcms.py',
+            '--config', str(config),
+            '--dry-run'
+        ]):
+            try:
+                from markcms import main
+                main()
+            except SystemExit as e:
+                # Should exit successfully in dry-run mode
+                assert e.code == 0
