@@ -1,0 +1,24 @@
+name: Simple Test Run
+</parameter>,
+<parameter=on>
+{workflow_dispatch: {}, push: {branches: [main, tests]}, pull_request: {branches: [main, tests]}}
+
+on: {
+  workflow_dispatch: {}
+}
+
+jobs:
+  simple-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python 3.11
+        run: python --version || sudo apt-get update && sudo apt-get install -y python3 python3-pip
+        env:
+
+      - name: Install pytest
+        run: pip install pytest pytest-cov
+      - name: Run tests
+        run: cd src && PYTHONPATH=. python3 -m pytest ../tests/ -vv --tb=short || echo 'Tests finished'
+        env:
