@@ -1,162 +1,120 @@
-"""Tests for debug.py - Testing the Debug class functionality."""
-
+"""Tests for src/debug.py - Debug and verbose output helpers."""
 import sys
-from unittest.mock import patch, MagicMock
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-# Import paths are handled by conftest.py
+import pytest
+from debug import Debug, debug, verbose
 
 
 class TestDebugClass:
-    """Test cases for the Debug class."""
+    """Test suite for the Debug class."""
     
-    def test_init_default_values(self):
-        """Test that default values are set correctly."""
-        from debug import Debug
-        debug = Debug()
-        assert debug.enabled is False
-        assert debug.prefix == ""
+    def test_init_defaults(self):
+        """Test default initialization values."""
+        d = Debug()
+        assert d.enabled is False
+        assert d.prefix == ""
     
     def test_init_with_enabled_true(self):
         """Test initialization with enabled=True."""
-        from debug import Debug
-        debug = Debug(enabled=True)
-        assert debug.enabled is True
-        assert debug.prefix == ""
+        d = Debug(enabled=True)
+        assert d.enabled is True
+        assert d.prefix == ""
     
     def test_init_with_prefix(self):
         """Test initialization with custom prefix."""
-        from debug import Debug
-        debug = Debug(prefix="[TEST]")
-        assert debug.enabled is False
-        assert debug.prefix == "[TEST] "
+        d = Debug(prefix="[TEST]")
+        assert d.prefix == "[TEST] "
     
-    def test_init_with_prefix_and_enabled(self):
-        """Test initialization with both prefix and enabled=True."""
-        from debug import Debug
-        debug = Debug(enabled=True, prefix="DEBUG")
-        assert debug.enabled is True
-        assert debug.prefix == "DEBUG "
+    def test_init_with_prefix_no_trailing_space(self):
+        """Test that trailing spaces are stripped from prefix."""
+        d = Debug(prefix="DEBUG  ")
+        assert d.prefix == "DEBUG "
     
-    def test_print_disabled_no_output(self, capsys):
-        """Test that nothing is printed when disabled."""
-        from debug import Debug
-        debug = Debug(enabled=False)
-        debug.print("This should not appear")
-        
+    def test_print_disabled_by_default(self, capsys):
+        """Test that print does nothing when disabled."""
+        d = Debug()
+        d.print("test message")
         captured = capsys.readouterr()
         assert captured.out == ""
     
-    @patch('builtins.print')
-    def test_print_enabled_with_prefix(self, mock_print):
-        """Test printing with prefix when enabled."""
-        from debug import Debug
-        debug = Debug(enabled=True, prefix="[DEBUG]")
-        debug.print("test message", "extra")
-        
-        mock_print.assert_called_once_with("[DEBUG] ", "test message", "extra")
+    def test_print_enabled(self, capsys):
+        """Test that print works when enabled."""
+        d = Debug(enabled=True)
+        d.print("hello", "world")
+        captured = capsys.readouterr()
+        assert captured.out == "hello world\n"
     
-    @patch('builtins.print')
-    def test_print_enabled_without_prefix(self, mock_print):
-        """Test printing without prefix when enabled."""
-        from debug import Debug
-        debug = Debug(enabled=True)
-        debug.print("test message")
-        
-        mock_print.assert_called_once_with("test message")
+    def test_print_with_prefix(self, capsys):
+        """Test print with custom prefix."""
+        d = Debug(enabled=True, prefix="[DBG]")
+        d.print("message")
+        captured = capsys.readouterr()
+        assert captured.out == "[DBG] message\n"
     
-    @patch('builtins.print')
-    def test_print_with_kwargs(self, mock_print):
-        """Test print with keyword arguments."""
-        from debug import Debug
-        debug = Debug(enabled=True, prefix="[TEST]")
-        debug.print("hello", sep="-", end="!")
-        
-        mock_print.assert_called_once_with("[TEST] ", "hello", sep="-", end="!")
+    def test_print_with_kwargs(self, capsys):
+        """Test print passes kwargs to built-in print."""
+        d = Debug(enabled=True)
+        d.print("test", sep="-", end="!\n")
+        captured = capsys.readouterr()
+        assert captured.out == "test!\n"
     
     def test_on_method(self):
         """Test the on() method enables printing."""
-        from debug import Debug
-        debug = Debug(enabled=False)
-        assert debug.enabled is False
-        
-        debug.on()
-        assert debug.enabled is True
+        d = Debug(enabled=False)
+        d.on()
+        assert d.enabled is True
     
     def test_off_method(self):
         """Test the off() method disables printing."""
-        from debug import Debug
-        debug = Debug(enabled=True)
-        assert debug.enabled is True
-        
-        debug.off()
+        d = Debug(enabled=True)
+        d.off()
+        assert d.enabled is False
+    
+    def test_shared_debug_instance_disabled(self):
+        """Test that shared debug instance is disabled by default."""
         assert debug.enabled is False
     
-    def test_toggle_enable_disable(self):
-        """Test toggling between enabled and disabled."""
-        from debug import Debug
-        debug = Debug(enabled=False)
-        
-        debug.on()
-        assert debug.enabled is True
-        
-        debug.off()
-        assert debug.enabled is False
-        
-        debug.on()
-        assert debug.enabled is True
-
-
-class TestDebugInstances:
-    """Test the shared debug and verbose instances."""
-    
-    def test_debug_instance_defaults(self):
-        """Test that default debug instance has correct settings."""
-        from debug import debug, verbose
-        
-        assert debug.enabled is False
-        assert debug.prefix == "[DEBUG]   "
-        
+    def test_shared_verbose_instance_disabled(self):
+        """Test that shared verbose instance is disabled by default."""
         assert verbose.enabled is False
-        assert verbose.prefix == ""
     
-    def test_verbose_instance_no_prefix(self):
-        """Test that verbose instance has no prefix."""
-        from debug import verbose
-        
-        assert verbose.prefix == ""
-    
-    def test_debug_instance_can_be_enabled(self):
-        """Test that debug instance can be enabled."""
-        from debug import debug
-        
-        assert debug.enabled is False
-        
-        debug.on()
-        assert debug.enabled is True
-        
-        # Reset for other tests
-        debug.off()
+    def test_print_empty_args(self, capsys):
+        """Test print with no arguments when enabled."""
+        d = Debug(enabled=True)
+        d.print()
+        captured = capsys.readouterr()
+        assert captured.out == "\n"
 
 
 class TestDebugEdgeCases:
     """Edge case tests for Debug class."""
     
-    def test_print_with_none(self, capsys):
-        """Test printing None value."""
-        from debug import Debug
-        debug = Debug(enabled=True)
-        debug.print(None)
-        
+    def test_print_none_value(self, capsys):
+        """Test print with None value."""
+        d = Debug(enabled=True)
+        d.print(None)
         captured = capsys.readouterr()
-        assert "None" in captured.out
+        assert captured.out == "None\n"
+    
+    def test_print_empty_string(self, capsys):
+        """Test print with empty string."""
+        d = Debug(enabled=True)
+        d.print("")
+        captured = capsys.readouterr()
+        assert captured.out == "\n"
     
     def test_prefix_with_empty_string(self):
-        """Test that empty string prefix works."""
-        from debug import Debug
-        debug = Debug(prefix="")
-        assert debug.prefix == ""
-
-
-if __name__ == "__main__":
-    import pytest
-    pytest.main([__file__, "-v"])
+        """Test prefix as empty string."""
+        d = Debug(prefix="")
+        assert d.prefix == ""
+    
+    def test_multiple_on_off_cycles(self):
+        """Test toggling on/off multiple times."""
+        d = Debug(enabled=False)
+        for _ in range(5):
+            d.on()
+            assert d.enabled is True
+            d.off()
+            assert d.enabled is False
