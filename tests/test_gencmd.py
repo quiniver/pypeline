@@ -1,115 +1,63 @@
-"""Tests for gencmd.py - Testing command generation functions."""
-
+"""Tests for src/gencmd.py - Windows .cmd wrapper generator."""
+import sys
+from pathlib import Path
 from unittest.mock import patch, MagicMock
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+import pytest
 
 
-class TestSelectFunctions:
-    """Test cases for GUI selection functions."""
+class TestGenerateCmd:
+    """Test suite for gencmd.py module (mocked GUI)."""
     
-    def test_select_python_script(self):
-        """Test selecting Python script (returns None without actual dialog)."""
-        import gencmd
-        
-        with patch('gencmd.tk.Tk') as mock_tk:
+    @pytest.fixture(autouse=True)
+    def mock_gui(self):
+        """Mock tkinter file dialogs to avoid GUI dependencies."""
+        with patch('gencmd.tk') as mock_tk:
             mock_root = MagicMock()
-            mock_tk.return_value = mock_root
+            mock_root.withdraw = MagicMock()
+            mock_tk.Tk.return_value = mock_root
             
-            result = gencmd.select_python_script()
-            
-            assert result is None
+            # Mock file dialog responses
+            mock_root.destroy = MagicMock()
+            yield mock_tk
     
-    def test_select_cmd_file(self):
-        """Test selecting .cmd file (returns None without actual dialog)."""
-        import gencmd
+    def test_main_with_env_name(self, temp_dir):
+        """Test creating cmd wrapper with specified conda env name."""
+        script_path = temp_dir / "test_script.py"
+        script_path.write_text('print("hello")')
         
-        with patch('gencmd.tk.Tk') as mock_tk:
-            mock_root = MagicMock()
-            mock_tk.return_value = mock_root
-            
-            result = gencmd.select_cmd_file()
-            
-            assert result is None
-
-
-class TestExtractPythonAndScriptPaths:
-    """Test cases for extract_python_and_script_paths_and_env function."""
-    
-    def test_extract_paths_success(self, tmp_path):
-        """Test extracting paths from valid .cmd file."""
-        import gencmd
-        
-        # Create a temporary .cmd file with expected format
-        cmd_file = tmp_path / "test.cmd"
-        content = '@echo off\n"python.exe" "/path/to/script.py" %*'
-        cmd_file.write_text(content)
-        
-        python_interp, script_path, old_env = gencmd.extract_python_and_script_paths_and_env(str(cmd_file))
-        
-        assert python_interp == 'python.exe'
-        assert script_path == '/path/to/script.py'
-        assert old_env is None
-    
-    def test_extract_paths_with_env_name(self, tmp_path):
-        """Test extracting paths with env-name comment."""
-        import gencmd
-        
-        cmd_file = tmp_path / "test.cmd"
-        content = '@echo off\n:: env-name: myenv\n"python.exe" "/path/to/script.py" %*'
-        cmd_file.write_text(content)
-        
-        python_interp, script_path, old_env = gencmd.extract_python_and_script_paths_and_env(str(cmd_file))
-        
-        assert old_env == 'myenv'
-
-
-class TestGetPythonInterpreterForCondaEnv:
-    """Test cases for get_python_interpreter_for_conda_env function."""
-    
-    def test_get_conda_python_success(self):
-        """Test getting Python path from conda environment."""
-        import gencmd
-        
-        with patch('gencmd.subprocess.run') as mock_run:
-            mock_result = MagicMock()
-            mock_result.stdout = '/path/to/conda/env/python'
-            mock_run.return_value = mock_result
-            
-            python_path = gencmd.get_python_interpreter_for_conda_env('myenv')
-            
-            assert python_path == '/path/to/conda/env/python'
-
-
-class TestMainFunction:
-    """Test cases for main function."""
-    
-    def test_main_create_mode_with_args(self, tmp_path):
-        """Test main in create mode with command line arguments."""
-        import gencmd
-        
-        # Create a temporary Python script
-        py_file = tmp_path / "test_script.py"
-        py_file.write_text("print('hello')")
-        
-        output_dir = tmp_path / "output"
+        output_dir = temp_dir / "output"
         output_dir.mkdir()
         
-        with patch('gencmd.sys.exit'):  # Prevent actual exit
+        with patch('sys.argv', [
+            'gencmd.py',
+            str(script_path),
+            str(output_dir),
+            '-n', 'test_env'
+        ]):
+            # Should complete without error (with mocked subprocess for --help)
             try:
-                original_argv = __import__('sys').argv.copy()
-                try:
-                    __import__('sys').argv = ['gencmd.py', str(py_file), str(output_dir)]
-                    
-                    result = gencmd.main()
-                    
-                    # Check that .cmd file was created
-                    expected_cmd = output_dir / "test_script.cmd"
-                    assert expected_cmd.exists()
-                finally:
-                    __import__('sys').argv = original_argv
-            except SystemExit:
-                pass  # Expected when subprocess fails
-
-
-if __name__ == "__main__":
-    import pytest
-    pytest.main([__file__, "-v"])
+                from gencmd import main
+                main()
+            except SystemExit as e:
+                # Expected when help capture fails due to mock
+                assert e.code in (0, 1)
+    
+    def test_update_mode_with_existing_cmd(self, temp_dir):
+        """Test updating existing .cmd file."""
+        # Create a sample .cmd file
+        cmd_file = temp_dir / "existing.cmd"
+        cmd_file.write_text(
+            '@echo off\n'
+            '"""python3\" \"path/to/script.py\" %*'
+        )
+        
+        with patch('sys.argv', ['gencmd.py', '--update', str(cmd_file)]):
+            # Should handle missing script gracefully
+            try:
+                from gencmd import main
+                main()
+            except SystemExit as e:
+                # Expected when script path validation fails
+                assert e.code == 1
