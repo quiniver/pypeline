@@ -1,0 +1,28 @@
+name: Debug Test (Single Python)
+</parameter>,
+<parameter=on>
+{push: {"branches": ["tests"]}, workflow_dispatch: {}}
+
+on: {
+  workflow_dispatch: {}
+}
+
+jobs:
+  debug-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          cache: 'pip'
+          python-version: 3.12
+      - name: Install dependencies
+        run: pip install pytest pytest-cov
+      - name: List test files
+        run: find tests/ -name '*.py' | head -20
+      - name: Run single test file for debugging
+        run: cd src && PYTHONPATH=. python3 -m pytest ../tests/test_debug.py -vv --tb=long || echo 'Debug tests completed'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
