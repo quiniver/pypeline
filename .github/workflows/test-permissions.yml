@@ -1,0 +1,17 @@
+name: Test Permissions
+
+on: {
+  push: {
+    branches: [
+      tests
+    ]
+  },
+  workflow_dispatch: {}
+}
+
+jobs:
+  test-permissions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test Echo
+        run: echo "Workflow created successfully via create_workflow tool"
