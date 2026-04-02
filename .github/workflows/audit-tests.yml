@@ -30,6 +30,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest iterfzf==1.8.0.62.0
 
-      - name: Run tests with verbose output
+      - name: Run tests with verbose output and save to file
         run: |
-          pytest tests/ -vv
+          pytest tests/ -vv --tb=short 2>&1 | tee test-output.log || true
+          
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-python-${{ matrix.python-version }}
+          path: test-output.log
