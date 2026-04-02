@@ -1,6 +1,7 @@
 """Global pytest configuration and fixtures."""
 import sys
 import os
+import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 import pytest
@@ -84,6 +85,3 @@ def mock_gh_cli(monkeypatch):
         return result
     
     monkeypatch.setattr('subprocess.run', mock_run)
-
-
-import json
