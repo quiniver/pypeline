@@ -32,11 +32,12 @@ jobs:
 
       - name: Run tests with verbose output and save to file
         run: |
-          pytest tests/ -vv --tb=short 2>&1 | tee test-output.log || true
-          
-      - name: Upload test logs on failure
-        if: failure()
+          pytest tests/ -vv --tb=long 2>&1 | tee test-output.log
+
+      - name: Upload test logs (always)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-logs-python-${{ matrix.python-version }}
           path: test-output.log
+          retention-days: 7
