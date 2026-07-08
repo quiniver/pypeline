@@ -1,6 +1,7 @@
 """Tests for src/generate-issue-md.py - GitHub Issues to Markdown exporter."""
 import sys
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import importlib.util
@@ -185,16 +186,44 @@ class TestIssueFetching:
 class TestMarkdownGeneration:
     """Test Markdown document generation."""
     
+    def _mock_issue_details(self, mock_run, state="open"):
+        """Helper to set up mock for issue details calls."""
+        def side_effect(*args, **kwargs):
+            if "repo view" in str(args[0]):
+                result = MagicMock()
+                result.returncode = 0
+                result.stdout = '{"nameWithOwner": "test/repo"}'
+                return result
+            elif "/issues/" in str(args[0]) and "comments" not in str(args[0]):
+                result = MagicMock()
+                result.returncode = 0
+                result.stdout = json.dumps({
+                    "body": "Issue body",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "state": state,
+                    "user": {"login": "testuser"}
+                })
+                return result
+            else:
+                result = MagicMock()
+                result.returncode = 0
+                result.stdout = json.dumps([])
+                return result
+        mock_run.side_effect = side_effect
+    
     def test_build_markdown_basic(self):
         """Test building basic markdown output."""
         issues = [
             {"number": 1, "title": "Bug Fix", "state": "open", "createdAt": "2024-01-01"},
             {"number": 2, "title": "Feature Request", "state": "closed", "createdAt": "2024-01-02"}
         ]
-        markdown = generate_issue_md.build_markdown(issues, color=True)
-        assert "# GitHub Issues" in markdown
-        assert "## Overview" in markdown
-        assert "| Issue | Title | State | Created |" in markdown
+        with patch('subprocess.run') as mock_run:
+            self._mock_issue_details(mock_run)
+            markdown = generate_issue_md.build_markdown(issues, color=True)
+            assert "# GitHub Issues" in markdown
+            assert "## Overview" in markdown
+            assert "| Issue | Title | State | Created |" in markdown
+            assert "## Details" in markdown
     
     def test_build_markdown_with_milestone(self):
         """Test building markdown with milestone info."""
@@ -202,9 +231,11 @@ class TestMarkdownGeneration:
             {"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01",
              "milestone": {"title": "v1.0"}}
         ]
-        markdown = generate_issue_md.build_markdown(issues, include_milestone=True)
-        assert "## Details" in markdown
-        assert "**Milestone:** v1.0" in markdown
+        with patch('subprocess.run') as mock_run:
+            self._mock_issue_details(mock_run)
+            markdown = generate_issue_md.build_markdown(issues, include_milestone=True)
+            assert "## Details" in markdown
+            assert "**Milestone:** v1.0" in markdown
     
     def test_build_markdown_with_assignees(self):
         """Test building markdown with assignee info."""
@@ -212,37 +243,75 @@ class TestMarkdownGeneration:
             {"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01",
              "assignees": [{"login": "developer"}]}
         ]
-        markdown = generate_issue_md.build_markdown(issues, include_assignee=True)
-        assert "**Assignee(s):** developer" in markdown
+        with patch('subprocess.run') as mock_run:
+            self._mock_issue_details(mock_run)
+            markdown = generate_issue_md.build_markdown(issues, include_assignee=True)
+            assert "**Assignee(s):** developer" in markdown
     
     def test_build_markdown_no_color(self):
         """Test building markdown without emoji colors."""
         issues = [{"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01"}]
-        markdown = generate_issue_md.build_markdown(issues, color=False)
-        assert "open" in markdown
-        assert "🟢" not in markdown
+        with patch('subprocess.run') as mock_run:
+            self._mock_issue_details(mock_run)
+            markdown = generate_issue_md.build_markdown(issues, color=False)
+            assert "open" in markdown
+            assert "🟢" not in markdown
     
     def test_build_markdown_back_to_top_links(self):
         """Test back-to-top link styles."""
         issues = [{"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01"}]
-        
-        markdown = generate_issue_md.build_markdown(issues, top_link_style="icon")
-        assert "⬆️" in markdown
-        assert "Back to top" not in markdown
-        
-        markdown_text = generate_issue_md.build_markdown(issues, top_link_style="text")
-        assert "Back to top" in markdown_text
-        assert "⬆️" not in markdown_text
-        
-        markdown_none = generate_issue_md.build_markdown(issues, top_link_style="none")
-        assert "⬆️" not in markdown_none
-        assert "Back to top" not in markdown_none
+        with patch('subprocess.run') as mock_run:
+            self._mock_issue_details(mock_run)
+            
+            markdown = generate_issue_md.build_markdown(issues, top_link_style="icon")
+            assert "⬆️" in markdown
+            assert "Back to top" not in markdown
+            
+            markdown_text = generate_issue_md.build_markdown(issues, top_link_style="text")
+            assert "Back to top" in markdown_text
+            assert "⬆️" not in markdown_text
+            
+            markdown_none = generate_issue_md.build_markdown(issues, top_link_style="none")
+            assert "⬆️" not in markdown_none
+            assert "Back to top" not in markdown_none
     
     def test_build_markdown_empty_issues(self):
         """Test building markdown with no issues."""
         markdown = generate_issue_md.build_markdown([], color=False)
         assert "# GitHub Issues for" in markdown
         assert "(0 total)" in markdown
+    
+    def test_build_markdown_with_comments(self):
+        """Test building markdown with issue comments."""
+        issues = [{"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01"}]
+        with patch('subprocess.run') as mock_run:
+            def side_effect(*args, **kwargs):
+                if "repo view" in str(args[0]):
+                    result = MagicMock()
+                    result.returncode = 0
+                    result.stdout = '{"nameWithOwner": "test/repo"}'
+                    return result
+                elif "/issues/" in str(args[0]) and "comments" not in str(args[0]):
+                    result = MagicMock()
+                    result.returncode = 0
+                    result.stdout = json.dumps({
+                        "body": "Bug description",
+                        "created_at": "2024-01-01T00:00:00Z",
+                        "state": "open",
+                        "user": {"login": "testuser"}
+                    })
+                    return result
+                else:
+                    result = MagicMock()
+                    result.returncode = 0
+                    result.stdout = json.dumps([
+                        {"body": "Comment 1", "created_at": "2024-01-02", "user": {"login": "reviewer"}}
+                    ])
+                    return result
+            mock_run.side_effect = side_effect
+            markdown = generate_issue_md.build_markdown(issues)
+            assert "**Comments:**" in markdown
+            assert "> Comment 1" in markdown
 
 
 class TestIssueFiltering:
@@ -327,9 +396,9 @@ class TestGenerateIssueMDMain:
         """Test writing to specified filename."""
         issues = [{"number": 1, "title": "Test", "state": "open"}]
         
-        with patch('generate_issue_md.build_markdown') as mock_build:
-            mock_build.return_value = "# Test\n"
+        with patch.object(generate_issue_md, 'build_markdown', return_value="# Test\n") as mock_build:
             generate_issue_md.write_markdown(issues, "/tmp/test.md")
+            mock_build.assert_called_once()
     
     def test_main_list_assignees(self):
         """Test --list-assignees flag."""
@@ -337,7 +406,7 @@ class TestGenerateIssueMDMain:
             {"assignees": [{"login": "alice"}]},
             {"assignees": [{"login": "bob"}]}
         ]
-        with patch('generate_issue_md.get_issues', return_value=mock_issues):
+        with patch.object(generate_issue_md, 'get_issues', return_value=mock_issues):
             with patch('sys.argv', ['generate-issue-md.py', '--list-assignees']):
                 with pytest.raises(SystemExit) as exc_info:
                     generate_issue_md.main()
@@ -349,8 +418,19 @@ class TestGenerateIssueMDMain:
             {"milestone": {"title": "v1.0"}},
             {"milestone": {"title": "v2.0"}}
         ]
-        with patch('generate_issue_md.get_issues', return_value=mock_issues):
+        with patch.object(generate_issue_md, 'get_issues', return_value=mock_issues):
             with patch('sys.argv', ['generate-issue-md.py', '--list-milestones']):
                 with pytest.raises(SystemExit) as exc_info:
                     generate_issue_md.main()
                 assert exc_info.value.code == 0
+    
+    def test_main_keyboard_interrupt(self):
+        """Test KeyboardInterrupt handling in main."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = KeyboardInterrupt()
+        
+        with patch('sys.argv', ['generate-issue-md.py']):
+            try:
+                generate_issue_md.main()
+            except SystemExit as e:
+                assert e.code == 130
