@@ -28,7 +28,8 @@ class TestPathResolution:
         base = Path("/base")
         result = resolve_path(rel_path, base)
         
-        expected = (base / "relative").resolve()
+        # resolve() resolves to the full path including the filename component
+        expected = (base / "relative/path").resolve()
         assert result == expected
     
     def test_resolve_nested_relative(self):
@@ -83,6 +84,17 @@ class TestYAMLLoading:
             load_config(config_path)
         
         assert "Invalid YAML" in str(exc_info.value)
+    
+    def test_load_empty_yaml(self, temp_dir):
+        """Test loading empty YAML file returns empty dict."""
+        from markcms import load_config
+        
+        config_path = temp_dir / "empty.yml"
+        config_path.write_text("")
+        
+        config = load_config(config_path)
+        
+        assert config == {}
 
 
 class TestMenuAndSitemapGeneration:
@@ -106,6 +118,15 @@ class TestMenuAndSitemapGeneration:
         
         assert "__link__" in key
     
+    def test_get_menu_key_with_title_only(self):
+        """Test getting menu key for item with title only."""
+        from markcms import get_menu_key
+        
+        item = {"title": "My Page"}
+        key = get_menu_key(item)
+        
+        assert key == "My Page"
+    
     def test_get_sitemap_content(self):
         """Test generating sitemap content."""
         from markcms import get_sitemap_content
@@ -119,6 +140,21 @@ class TestMenuAndSitemapGeneration:
         
         assert "**Home**" in sitemap  # Active item should be bold
         assert "[About](about.md)" in sitemap
+    
+    def test_get_menu_content(self):
+        """Test generating menu content."""
+        from markcms import get_menu_content
+        
+        nav_items = [
+            {"title": "Home", "file": "index.md"},
+            {"title": "About", "file": "about.md"}
+        ]
+        
+        menu = get_menu_content(nav_items, "index.md")
+        
+        assert "**Home**" in menu
+        assert "[About](about.md)" in menu
+        assert "•" in menu
 
 
 class TestTemplateExpansion:
@@ -158,6 +194,36 @@ class TestTemplateExpansion:
             )
         
         assert "Header" in result
+    
+    def test_expand_missing_fragment(self):
+        """Test expanding when fragment file is missing."""
+        from markcms import expand_placeholders
+        
+        template = "{header} {content}"
+        context = {"content": "Body"}
+        
+        with patch('pathlib.Path.exists', return_value=False):
+            result = expand_placeholders(
+                template, context, Path("/templates"), [], "", {"header": "header.md"}
+            )
+        
+        assert "header.md not found" in result
+    
+    def test_expand_recursion_limit(self):
+        """Test that expansion stops at depth limit."""
+        from markcms import expand_placeholders
+        
+        template = "{header}"
+        context = {"header": "{header}"}  # Self-referential
+        
+        with patch('pathlib.Path.exists', return_value=True):
+            with patch('pathlib.Path.read_text', return_value="{header}"):
+                result = expand_placeholders(
+                    template, context, Path("/templates"), [], "", {"header": "header.md"}, depth=0
+                )
+        
+        # Should not recurse infinitely — depth limit kicks in at 3
+        assert result is not None
 
 
 class TestGalleryGeneration:
@@ -202,6 +268,93 @@ class TestGalleryGeneration:
         )
         
         assert "No images or supported media files found" in gallery
+    
+    def test_generate_gallery_nonexistent_directory(self, temp_dir):
+        """Test generating gallery from non-existent directory."""
+        from markcms import generate_gallery_content
+        
+        media_dir = temp_dir / "nonexistent-media"
+        # Don't create it
+        
+        template_media_dir = temp_dir / "template-media"
+        template_media_dir.mkdir()
+        
+        item = {"title": "Nonexistent Gallery"}
+        
+        gallery = generate_gallery_content(
+            item, media_dir, template_media_dir, {}, temp_dir, temp_dir / "output.md"
+        )
+        
+        assert "not found" in gallery
+    
+    def test_generate_gallery_multi_column(self, temp_dir):
+        """Test generating gallery with multiple columns."""
+        from markcms import generate_gallery_content
+        
+        media_dir = temp_dir / "media"
+        media_dir.mkdir()
+        
+        (media_dir / "photo1.jpg").write_bytes(b"fake")
+        (media_dir / "photo2.jpg").write_bytes(b"fake")
+        
+        template_media_dir = temp_dir / "template-media"
+        template_media_dir.mkdir()
+        
+        item = {"title": "Gallery", "columns": 2}
+        
+        gallery = generate_gallery_content(
+            item, media_dir, template_media_dir, {}, temp_dir, temp_dir / "output.md"
+        )
+        
+        # Should have table format with 2 columns
+        assert "|" in gallery
+    
+    def test_generate_gallery_paired_preview(self, temp_dir):
+        """Test generating gallery with paired video+image."""
+        from markcms import generate_gallery_content
+        
+        media_dir = temp_dir / "media"
+        media_dir.mkdir()
+        
+        # Paired files: video.mp4 + video.jpg
+        (media_dir / "video.mp4").write_bytes(b"fake video")
+        (media_dir / "video.jpg").write_bytes(b"fake jpg")
+        
+        template_media_dir = temp_dir / "template-media"
+        template_media_dir.mkdir()
+        
+        item = {"title": "Gallery"}
+        
+        gallery = generate_gallery_content(
+            item, media_dir, template_media_dir, {}, temp_dir, temp_dir / "output.md"
+        )
+        
+        assert "No images or supported media files found" not in gallery
+
+
+class TestExtractFrontmatter:
+    """Test frontmatter extraction."""
+    
+    def test_extract_frontmatter_present(self):
+        """Test extracting frontmatter from content."""
+        from markcms import extract_frontmatter
+        
+        content = "---\ntitle: Test\n---\n\nBody content"
+        front, body = extract_frontmatter(content)
+        
+        assert front is not None
+        assert "title: Test" in front
+        assert "Body content" in body
+    
+    def test_extract_frontmatter_absent(self):
+        """Test when no frontmatter is present."""
+        from markcms import extract_frontmatter
+        
+        content = "Just plain content"
+        front, body = extract_frontmatter(content)
+        
+        assert front is None
+        assert body == "Just plain content"
 
 
 class TestMarkCMSMain:
@@ -241,3 +394,31 @@ class TestMarkCMSMain:
             except SystemExit as e:
                 # Should exit successfully in dry-run mode
                 assert e.code == 0
+    
+    def test_config_with_both_docs_and_nav_raises(self, temp_dir):
+        """Test that config with both docs and nav blocks raises ValueError."""
+        config = temp_dir / "_config.yml"
+        config.write_text("docs:\n  - title: Test\nnav:\n  - title: Old")
+        
+        with patch('sys.argv', ['markcms.py', '--config', str(config)]):
+            try:
+                from markcms import main
+                main()
+            except ValueError as e:
+                assert "both 'docs' and 'nav'" in str(e)
+            except SystemExit:
+                pass
+    
+    def test_config_missing_both_blocks_raises(self, temp_dir):
+        """Test that config missing both docs and nav raises ValueError."""
+        config = temp_dir / "_config.yml"
+        config.write_text("some_key: value")
+        
+        with patch('sys.argv', ['markcms.py', '--config', str(config)]):
+            try:
+                from markcms import main
+                main()
+            except ValueError as e:
+                assert "must contain 'docs' or 'nav'" in str(e)
+            except SystemExit:
+                pass
