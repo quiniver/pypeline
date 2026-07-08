@@ -3,18 +3,21 @@ import sys
 import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+import importlib.util
 
 # The source file uses a hyphen in its name (generate-issue-md.py),
-# so we can't use a standard import. Load it via importlib.
+# so we can't use a standard Python import. Load it via importlib.
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
 
-importlib_spec = __import__('importlib.util').util
-generate_issue_md = importlib_spec.spec_from_file_location(
+# Load the module by its file path
+_spec = importlib.util.spec_from_file_location(
     'generate_issue_md',
     str(Path(__file__).parent.parent / 'src' / 'generate-issue-md.py')
-)[0].load_module()
+)
+generate_issue_md = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(generate_issue_md)
 
 
 class TestGitHubAnchor:
@@ -27,7 +30,6 @@ class TestGitHubAnchor:
     
     def test_anchor_with_diacritics(self):
         """Test anchor normalization removes diacritics."""
-        # Test with German umlauts
         anchor = generate_issue_md.github_anchor("Überprüfung der Funktion")
         assert "uberprufung" in anchor or "uber" in anchor
     
@@ -73,7 +75,6 @@ class TestGHCLICommands:
             mock_run.return_value = mock_result
             
             result = generate_issue_md.run_gh_command(["issue", "list"], verbose=False)
-            
             assert json.loads(result) == {"test": "data"}
     
     def test_run_gh_command_failure(self):
@@ -85,7 +86,6 @@ class TestGHCLICommands:
             mock_run.return_value = mock_result
             
             result = generate_issue_md.run_gh_command(["issue", "list"], verbose=True)
-            
             assert result is None
     
     def test_run_gh_command_failure_no_verbose(self):
@@ -97,7 +97,6 @@ class TestGHCLICommands:
             mock_run.return_value = mock_result
             
             result = generate_issue_md.run_gh_command(["issue", "list"], verbose=False)
-            
             assert result is None
 
 
@@ -116,7 +115,6 @@ class TestIssueFetching:
             mock_run.return_value = mock_result
             
             issues = generate_issue_md.get_issues(state="all")
-            
             assert len(issues) == 2
             assert issues[0]["number"] == 1
     
@@ -128,7 +126,6 @@ class TestIssueFetching:
             mock_run.return_value = mock_result
             
             issues = generate_issue_md.get_issues(state="open")
-            
             assert issues == []
     
     def test_get_issues_invalid_json(self):
@@ -140,7 +137,6 @@ class TestIssueFetching:
             mock_run.return_value = mock_result
             
             issues = generate_issue_md.get_issues(state="open", verbose=True)
-            
             assert issues == []
     
     def test_get_issue_details(self):
@@ -170,9 +166,7 @@ class TestIssueFetching:
                     return result
             
             mock_run.side_effect = side_effect
-            
             issue_data, comments = generate_issue_md.get_issue_details(42)
-            
             assert issue_data is not None
             assert isinstance(comments, list)
     
@@ -184,7 +178,6 @@ class TestIssueFetching:
             mock_run.return_value = mock_result
             
             issue_data, comments = generate_issue_md.get_issue_details(42)
-            
             assert issue_data is None
             assert comments is None
 
@@ -198,9 +191,7 @@ class TestMarkdownGeneration:
             {"number": 1, "title": "Bug Fix", "state": "open", "createdAt": "2024-01-01"},
             {"number": 2, "title": "Feature Request", "state": "closed", "createdAt": "2024-01-02"}
         ]
-        
         markdown = generate_issue_md.build_markdown(issues, color=True)
-        
         assert "# GitHub Issues" in markdown
         assert "## Overview" in markdown
         assert "| Issue | Title | State | Created |" in markdown
@@ -208,53 +199,32 @@ class TestMarkdownGeneration:
     def test_build_markdown_with_milestone(self):
         """Test building markdown with milestone info."""
         issues = [
-            {
-                "number": 1, 
-                "title": "Bug", 
-                "state": "open", 
-                "createdAt": "2024-01-01",
-                "milestone": {"title": "v1.0"}
-            }
+            {"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01",
+             "milestone": {"title": "v1.0"}}
         ]
-        
         markdown = generate_issue_md.build_markdown(issues, include_milestone=True)
-        
         assert "## Details" in markdown
         assert "**Milestone:** v1.0" in markdown
     
     def test_build_markdown_with_assignees(self):
         """Test building markdown with assignee info."""
         issues = [
-            {
-                "number": 1, 
-                "title": "Bug", 
-                "state": "open", 
-                "createdAt": "2024-01-01",
-                "assignees": [{"login": "developer"}]
-            }
+            {"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01",
+             "assignees": [{"login": "developer"}]}
         ]
-        
         markdown = generate_issue_md.build_markdown(issues, include_assignee=True)
-        
         assert "**Assignee(s):** developer" in markdown
     
     def test_build_markdown_no_color(self):
         """Test building markdown without emoji colors."""
-        issues = [
-            {"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01"}
-        ]
-        
+        issues = [{"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01"}]
         markdown = generate_issue_md.build_markdown(issues, color=False)
-        
         assert "open" in markdown
-        # Should not contain emoji
         assert "🟢" not in markdown
     
     def test_build_markdown_back_to_top_links(self):
         """Test back-to-top link styles."""
-        issues = [
-            {"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01"}
-        ]
+        issues = [{"number": 1, "title": "Bug", "state": "open", "createdAt": "2024-01-01"}]
         
         markdown = generate_issue_md.build_markdown(issues, top_link_style="icon")
         assert "⬆️" in markdown
@@ -285,12 +255,10 @@ class TestIssueFiltering:
             {"number": 2, "assignees": [{"login": "bob"}]},
             {"number": 3, "assignees": [{"login": "alice"}, {"login": "charlie"}]}
         ]
-        
         filtered = [
             issue for issue in mock_issues
             if any(a.get("login") == "alice" for a in issue.get("assignees", []))
         ]
-        
         assert len(filtered) == 2
     
     def test_filter_by_milestone(self):
@@ -300,12 +268,10 @@ class TestIssueFiltering:
             {"number": 2, "milestone": {"title": "v2.0"}},
             {"number": 3, "milestone": None}
         ]
-        
         filtered = [
             issue for issue in mock_issues
             if issue.get("milestone") and issue["milestone"].get("title") == "v1.0"
         ]
-        
         assert len(filtered) == 1
 
 
@@ -318,12 +284,9 @@ class TestListCommands:
             {"assignees": [{"login": "alice", "name": "Alice Smith"}]},
             {"assignees": [{"login": "bob"}, {"login": "alice"}]}
         ]
-        
         with pytest.raises(SystemExit) as exc_info:
             generate_issue_md.list_assignees(mock_issues)
-        
         assert exc_info.value.code == 0
-        
         captured = capsys.readouterr()
         assert "alice" in captured.out.lower()
     
@@ -333,14 +296,11 @@ class TestListCommands:
             {"milestone": {"title": "v1.0"}},
             {"milestone": {"title": "v2.0"}},
             {"milestone": None},
-            {"milestone": {"title": "v1.0"}}  # duplicate
+            {"milestone": {"title": "v1.0"}}
         ]
-        
         with pytest.raises(SystemExit) as exc_info:
             generate_issue_md.list_milestones(mock_issues)
-        
         assert exc_info.value.code == 0
-        
         captured = capsys.readouterr()
         assert "v1.0" in captured.out
         assert "v2.0" in captured.out
@@ -361,7 +321,6 @@ class TestGenerateIssueMDMain:
             try:
                 generate_issue_md.main()
             except SystemExit as e:
-                # Should exit successfully
                 assert e.code == 0
     
     def test_main_with_filename(self):
@@ -370,7 +329,6 @@ class TestGenerateIssueMDMain:
         
         with patch('generate_issue_md.build_markdown') as mock_build:
             mock_build.return_value = "# Test\n"
-            
             generate_issue_md.write_markdown(issues, "/tmp/test.md")
     
     def test_main_list_assignees(self):
@@ -379,7 +337,6 @@ class TestGenerateIssueMDMain:
             {"assignees": [{"login": "alice"}]},
             {"assignees": [{"login": "bob"}]}
         ]
-        
         with patch('generate_issue_md.get_issues', return_value=mock_issues):
             with patch('sys.argv', ['generate-issue-md.py', '--list-assignees']):
                 with pytest.raises(SystemExit) as exc_info:
@@ -392,7 +349,6 @@ class TestGenerateIssueMDMain:
             {"milestone": {"title": "v1.0"}},
             {"milestone": {"title": "v2.0"}}
         ]
-        
         with patch('generate_issue_md.get_issues', return_value=mock_issues):
             with patch('sys.argv', ['generate-issue-md.py', '--list-milestones']):
                 with pytest.raises(SystemExit) as exc_info:
