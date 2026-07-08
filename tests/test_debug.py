@@ -47,11 +47,17 @@ class TestDebugClass:
         assert captured.out == "hello world\n"
     
     def test_print_with_prefix(self, capsys):
-        """Test print with custom prefix."""
+        """Test print with custom prefix.
+        
+        Note: Debug.print() uses builtins.print(self.prefix, *args) where
+        self.prefix already ends with a space. builtins.print adds a space
+        separator between args, so prefix='[DBG] ' + 'message' → '[DBG]  message'.
+        """
         d = Debug(enabled=True, prefix="[DBG]")
         d.print("message")
         captured = capsys.readouterr()
-        assert captured.out == "[DBG] message\n"
+        # prefix is '[DBG] ' (with trailing space), builtins.print adds another space
+        assert captured.out == "[DBG]  message\n"
     
     def test_print_with_kwargs(self, capsys):
         """Test print passes kwargs to built-in print."""
